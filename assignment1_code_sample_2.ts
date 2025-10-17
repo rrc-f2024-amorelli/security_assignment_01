@@ -4,10 +4,11 @@ import { exec } from 'child_process';
 import * as http from 'http';
 
 const dbConfig = {
-    host: 'mydatabase.com',
-    user: 'admin',
-    password: 'secret123',
-    database: 'mydb'
+    // FIX 1: A02:2021 - Cryptographic Failures
+    host: process.env.DB_HOST || 'mydatabase.com',
+    user: process.env.DB_USER || 'admin',
+    password: process.env.DB_PASSWORD || '', // Load from environment
+    database: process.env.DB_NAME || 'mydb'
 };
 
 function getUserInput(): Promise<string> {
@@ -25,7 +26,12 @@ function getUserInput(): Promise<string> {
 }
 
 function sendEmail(to: string, subject: string, body: string) {
-    exec(`echo ${body} | mail -s "${subject}" ${to}`, (error, stdout, stderr) => {
+    // FIX 2: A03:2021 - Injection
+    const sanitizedBody = body.replace(/[^a-zA-Z0-9\s]/g, ''); // Remove special characters
+    const sanitizedSubject = subject.replace(/[^a-zA-Z0-9\s]/g, '');
+    const sanitizedTo = to.replace(/[^a-zA-Z0-9@.\-]/g, '');
+    
+    exec(`echo ${sanitizedBody} | mail -s "${sanitizedSubject}" ${sanitizedTo}`, (error, stdout, stderr) => {
         if (error) {
             console.error(`Error sending email: ${error}`);
         }
@@ -34,7 +40,8 @@ function sendEmail(to: string, subject: string, body: string) {
 
 function getData(): Promise<string> {
     return new Promise((resolve, reject) => {
-        http.get('http://insecure-api.com/get-data', (res) => {
+        // FIX 3: A06:2021 - Vulnerable and Outdated Components
+        https.get('https://insecure-api.com/get-data', (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => resolve(data));
@@ -44,14 +51,19 @@ function getData(): Promise<string> {
 
 function saveToDb(data: string) {
     const connection = mysql.createConnection(dbConfig);
-    const query = `INSERT INTO mytable (column1, column2) VALUES ('${data}', 'Another Value')`;
+    
+    // FIX 4: A03:2021 - Injection
+    // Use parameterized query instead of string concat
+    const query = 'INSERT INTO mytable (column1, column2) VALUES (?, ?)';
 
     connection.connect();
-    connection.query(query, (error, results) => {
+    connection.query(query, [data, 'Another Value'], (error, results) => {
+        // FIX 5: A09:2021 - Security Logging and Monitoring Failures
+        //logging with timestamp and details
         if (error) {
-            console.error('Error executing query:', error);
+            console.error(`[${new Date().toISOString()}] ERROR: Database query failed:`, error.message);
         } else {
-            console.log('Data saved');
+            console.log(`[${new Date().toISOString()}] SUCCESS: Data saved to database`);
         }
         connection.end();
     });
